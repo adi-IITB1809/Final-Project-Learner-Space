@@ -7,7 +7,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 
-# View to list all videos or upload new one
 class VideoListCreateView(generics.ListCreateAPIView):
     queryset = Video.objects.all().order_by('-upload_time')
     serializer_class = VideoSerializer
@@ -16,45 +15,25 @@ class VideoListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(uploaded_by=self.request.user)
 
+    def get_queryset(self):
+        queryset = Video.objects.select_related('uploaded_by').order_by('-upload_time')
+        owner = self.request.query_params.get('mine')
+        if owner == 'true' and self.request.user.is_authenticated:
+            return queryset.filter(uploaded_by=self.request.user)
+        return queryset
+
 # View to retrieve details of a single video
 class VideoDetailView(generics.RetrieveAPIView):
     queryset = Video.objects.all()
     serializer_class = VideoSerializer
-
-def upload_video(request):
-    title = request.data.get('title')
-    description = request.data.get('description')
-    video_file = request.FILES.get('video')
-    thumbnail_file = request.FILES.get('thumbnail')
-
-    if not video_file:
-        return Response({"error": "No video uploaded"}, status=400)
-
-    Video.objects.create(
-        title=title,
-        description=description,
-        video_file=video_file,
-        thumbnail_file=thumbnail_file,
-        uploaded_by=request.user
-    )
-    return Response({"message": "Video uploaded successfully"})
+    permission_classes = [permissions.AllowAny]
 
 # View to register new users
-from rest_framework.authtoken.models import Token
-from rest_framework.response import Response
-from rest_framework import status
-
-from rest_framework.authtoken.models import Token
-
 class Register(APIView):
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
-            user = User.objects.create_user(
-                username=request.data['username'],
-                email=request.data['email'],
-                password=request.data['password']
-            )
+            user = serializer.save()
             # Create token for the user
             token, created = Token.objects.get_or_create(user=user)
 
@@ -67,14 +46,7 @@ class Register(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-from rest_framework.authtoken.views import ObtainAuthToken
-from rest_framework.authtoken.models import Token
-from rest_framework.response import Response
-
 from django.contrib.auth import authenticate
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
 
 class Login(APIView):
     def post(self, request):
@@ -83,7 +55,8 @@ class Login(APIView):
         user = authenticate(username=username, password=password)
 
         if user is not None:
-            return Response({"message": "Login successful"}, status=status.HTTP_200_OK)
+            token, _ = Token.objects.get_or_create(user=user)
+            return Response({"message": "Login successful", "username": user.username, "token": token.key}, status=status.HTTP_200_OK)
         else:
             return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
